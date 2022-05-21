@@ -2,6 +2,8 @@ const api = require('../api/api')
 const mongoose = require('mongoose')
 const Driver = require('../models/driver')
 const Race = require('../models/race')
+const Constructor = require('../models/constructor')
+const cloudinary = require('./cloudinary')
 const Result = require('../models/result')
 const util = require('../utils/helpers')
 
@@ -20,28 +22,76 @@ const checkDrivers = async () => {
       nationality: driver.nationality,
     }
   })
+
   const collection = await mongoose.connection.db.collection('drivers').countDocuments()
-  console.log('COLLECTION: ', collection);
   if(collection !== 0) {
 
-    driversCollection.map(async (driver) => {
-      const exist = await Driver.findOne({driverId: driver.driverId})
-      
-      if(!exist) {
-        const newDriver = await new Driver(driver)
-        console.log(newDriver);
+    await driversCollection.reduce(async (memo, driver) => {
+      const results = await memo
 
-        await newDriver.save(newDriver).then(response => {
+      const exist = await Driver.findOne({driverId: driver.driverId})
+
+      if(!exist) {
+        console.log('Driver does not exist: ', driver.driverId)
+        const driverImage = await cloudinary.searchPublic(driver.driverId, 'drivers')
+        if(driverImage.total_count > 0) {
+          driver.image = {
+            id: driverImage.resources[0].asset_id,
+            public_id: driverImage.resources[0].public_id,
+            folder: driverImage.resources[0].public_id,
+            url: driverImage.resources[0].secure_url
+          }
+        } else {
+          const image = await cloudinary.uploadImage(driver.driverId, 'drivers')
+          driver.image = {
+            id: image.asset_id,
+            public_id: image.public_id,
+            folder: image.folder,
+            url: image.secure_url
+          }
+        }
+
+        const newDriver = await new Driver(driver)
+
+        await newDriver.save().then(response => {
           console.log('Driver created: ',response);
         })
         .catch(err => {
           console.log('Could not create driver', err);
         })
       }
-    })
 
+      return [...results, driver]
+    }, [])
   } else {
-    await Driver.insertMany(driversCollection)
+    const res = await driversCollection.reduce(async (memo, driver) => {
+      const results = await memo
+
+      const driverImage = await cloudinary.searchPublic(driver.driverId, 'drivers')
+      if(driverImage.total_count > 0) {
+        driver.image = {
+          id: driverImage.resources[0].asset_id,
+          public_id: driverImage.resources[0].public_id,
+          folder: driverImage.resources[0].public_id,
+          url: driverImage.resources[0].secure_url
+        }
+      } else {
+        const image = await cloudinary.uploadImage(driver.driverId, 'drivers')
+        
+          driver.image = {
+          id: image.asset_id,
+          public_id: image.public_id,
+          folder: image.folder,
+          url: image.secure_url
+        }
+      }
+
+      console.log('DRIVER COMPLETE');
+
+      return [...results, driver]
+    }, [])
+
+    await Driver.insertMany(res)
   }
 } catch(err) {
   console.log(err);
@@ -167,10 +217,29 @@ const checkConstructors = async () => {
         constructorId: constructor.constructorId,
         name: constructor.name,
         nationality: constructor.nationality,
+        color: util.getConstructorHexColor(constructor.constructorId)
       }
-
-
     })
+
+    const collection = await mongoose.connection.db.collection('constructors').countDocuments()
+    console.log(collection);
+    if(collection !== 0) { 
+      constructorsCollection.map(async (constructor) => {
+        const exist = await Constructor.findOne({constructorId: constructor.constructorId})
+        if(!exist) {
+          const newConstructor = await new Constructor(constructor)
+  
+          await newConstructor.save().then(response => {
+            console.log('Constructor created: ', response);
+          })
+          .catch(err => {
+            console.log('Could not create constructor', err);
+          })
+        }
+      })
+    } else {
+      await Constructor.insertMany(constructorsCollection)
+    }
   } catch (err) {
     console.log(err);
   }
@@ -182,5 +251,5 @@ exports.checkData = async () => {
   // await checkDrivers()
   // await checkRaces()
   // await checkRaceResults()
-
+  // await checkConstructors()
 }
