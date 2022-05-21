@@ -34,8 +34,8 @@ const driverSchema = new Schema({
     type: String,
     required: true
   },
-  imageUrl: {
-    type: String,
+  image: {
+    type: Object,
     required: false,
   }
 
